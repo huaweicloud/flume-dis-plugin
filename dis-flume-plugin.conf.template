@@ -1,0 +1,38 @@
+agent.sources=dissource
+agent.channels=channel1
+agent.sinks=dissink
+
+# Describe/Define the channel:
+agent.channels.channel1.type=memory
+agent.channels.channel1.capacity=10000
+agent.channels.channel1.transactionCapacity=2000
+
+# Describe/Define the dissource
+agent.sources.dissource.channels=channel1
+agent.sources.dissource.type=com.huaweicloud.dis.adapter.flume.source.DISSource
+agent.sources.dissource.streams=YOU_DIS_STREAM_NAME
+agent.sources.dissource.ak=YOU_ACCESS_KEY_ID
+agent.sources.dissource.sk=YOU_SECRET_KEY_ID
+agent.sources.dissource.region=cn-north-1
+agent.sources.dissource.projectId=YOU_PROJECT_ID
+agent.sources.dissource.endpoint=https://dis.cn-north-1.myhuaweicloud.com
+agent.sources.dissource.group.id=YOU_APP_NAME
+
+
+# Describe/Define the dissink
+agent.sinks.dissink.channel=channel1
+agent.sinks.dissink.type=com.huaweicloud.dis.adapter.flume.sink.DISSink
+agent.sinks.dissink.streamName=YOU_DIS_STREAM_NAME
+agent.sinks.dissink.ak=YOU_ACCESS_KEY_ID
+agent.sinks.dissink.sk=YOU_SECRET_KEY_ID
+agent.sinks.dissink.region=cn-north-1
+agent.sinks.dissink.projectId=YOU_PROJECT_ID
+agent.sinks.dissink.endpoint=https://dis.cn-north-1.myhuaweicloud.com
+agent.sinks.dissink.resultLogLevel=INFO
+#agent.sinks.dissink.batchSize=1000
+#agent.sinks.dissink.sendingRecordSize=250
+#agent.sinks.dissink.sendingThreadSize=1
+#agent.sinks.dissink.retrySize=100
+#agent.sinks.dissink.maxBufferAgeMillis=5000
+#agent.sinks.dissink.partitionKeyDelimiter=,
+#agent.sinks.dissink.partitionKeyOption=RANDOM_INT

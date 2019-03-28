@@ -1,0 +1,60 @@
+<assembly xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/assembly-1.0.0.xsd">
+    <id>${version}</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>true</includeBaseDirectory>
+    <fileSets>
+        <!-- copy lib -->
+        <fileSet>
+            <directory>target/lib</directory>
+            <includes>
+                <include>*</include>
+            </includes>
+            <outputDirectory>lib/</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>../dis-flume-source/target/lib</directory>
+            <includes>
+                <include>*</include>
+            </includes>
+            <outputDirectory>lib/</outputDirectory>
+        </fileSet>
+
+        <!-- copy libext -->
+        <fileSet>
+            <directory>target/libext</directory>
+            <includes>
+                <include>*</include>
+            </includes>
+            <outputDirectory>libext/</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>../dis-flume-source/target/libext</directory>
+            <includes>
+                <include>*</include>
+            </includes>
+            <outputDirectory>libext/</outputDirectory>
+        </fileSet>
+
+        <!-- copy . -->
+        <fileSet>
+            <directory>../</directory>
+            <includes>
+                <include>application.properties</include>
+            </includes>
+            <outputDirectory>lib</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>../</directory>
+            <includes>
+                <include>install.sh</include>
+                <include>dis-flume-plugin.conf.template</include>
+                <include>dis-encrypt.sh</include>
+            </includes>
+            <outputDirectory>.</outputDirectory>
+        </fileSet>
+
+    </fileSets>
+</assembly>  

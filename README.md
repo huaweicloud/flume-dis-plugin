@@ -1,1 +1,1 @@
-# flume-dis-plugin
+# Huawei Cloud DIS Plugins for Flume
