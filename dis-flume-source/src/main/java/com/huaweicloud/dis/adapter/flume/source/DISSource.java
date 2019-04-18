@@ -16,13 +16,10 @@
 
 package com.huaweicloud.dis.adapter.flume.source;
 
-import static com.huaweicloud.dis.adapter.flume.source.DISSourceConstants.DEFAULT_GROUP_ID;
-
-import java.io.ByteArrayInputStream;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
-
+import com.google.common.base.Optional;
+import com.huaweicloud.dis.DISConfig;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.*;
+import com.huaweicloud.dis.adapter.kafka.common.TopicPartition;
 import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
@@ -37,13 +34,15 @@ import org.apache.flume.event.EventBuilder;
 import org.apache.flume.instrumentation.kafka.KafkaSourceCounter;
 import org.apache.flume.source.AbstractPollableSource;
 import org.apache.flume.source.avro.AvroFlumeEvent;
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Optional;
-import com.huaweicloud.dis.adapter.kafka.consumer.DISKafkaConsumer;
+import java.io.ByteArrayInputStream;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
+
+import static com.huaweicloud.dis.adapter.flume.source.DISSourceConstants.DEFAULT_GROUP_ID;
 
 /**
  * A Source for DIS which reads messages from DIS streams.
@@ -308,7 +307,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
         }
         catch (Exception e)
         {
-            log.error("KafkaSource EXCEPTION, {}", e);
+            log.error("DISSource EXCEPTION, {}", e);
             return Status.BACKOFF;
         }
     }
@@ -342,7 +341,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
         }
         else if (subscriber == null)
         {
-            throw new ConfigurationException("At least one Kafka topic must be specified.");
+            throw new ConfigurationException("At least one DIS stream must be specified.");
         }
         
         batchUpperLimit = context.getInteger(DISSourceConstants.BATCH_SIZE, DISSourceConstants.DEFAULT_BATCH_SIZE);
@@ -400,6 +399,8 @@ public class DISSource extends AbstractPollableSource implements Configurable
             disProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         }
         disProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, DISSourceConstants.DEFAULT_AUTO_COMMIT);
+        // try to decrypt ak/sk
+        tryDecryptDISCredentials();
     }
     
     Properties getConsumerProps()
@@ -439,7 +440,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
         
         // Connect to DIS. 1 second is optimal time.
         it = consumer.poll(1000).iterator();
-        log.info("Kafka source {} started.", getName());
+        log.info("DIS source {} started.", getName());
         counter.start();
     }
     
@@ -453,9 +454,50 @@ public class DISSource extends AbstractPollableSource implements Configurable
             consumer.close();
         }
         counter.stop();
-        log.info("Kafka Source {} stopped. Metrics: {}", getName(), counter);
+        log.info("DIS Source {} stopped. Metrics: {}", getName(), counter);
     }
-    
+
+    protected void tryDecryptDISCredentials()
+    {
+        if (disProps == null)
+        {
+            return;
+        }
+        disProps.put(DISConfig.PROPERTY_AK, tryGetDecryptValue(DISConfig.PROPERTY_AK));
+        disProps.put(DISConfig.PROPERTY_SK, tryGetDecryptValue(DISConfig.PROPERTY_SK));
+    }
+
+    protected String tryGetDecryptValue(String key)
+    {
+        Object v = disProps.get(key);
+        if (v == null)
+        {
+            return null;
+        }
+        String value = String.valueOf(v);
+        String dataPassword = null;
+        if (disProps.get(DISConfig.PROPERTY_DATA_PASSWORD) != null)
+        {
+            dataPassword = String.valueOf(disProps.get(DISConfig.PROPERTY_DATA_PASSWORD));
+        }
+        // 168 is the Minimum length of encrypt value.
+        if (value.length() >= 168)
+        {
+            // not need to use configProviderClass
+            disProps.remove(DISConfig.PROPERTY_CONFIG_PROVIDER_CLASS);
+            try
+            {
+                log.info("Try to decrypt [{}].", key);
+                return EncryptTool.decrypt(value, dataPassword);
+            }
+            catch (Exception e)
+            {
+                log.error("Failed to decrypt [{}].", key);
+                throw e;
+            }
+        }
+        return value;
+    }
 }
 
 class SourceRebalanceListener implements ConsumerRebalanceListener
@@ -472,18 +514,12 @@ class SourceRebalanceListener implements ConsumerRebalanceListener
     // Set a flag that a rebalance has occurred. Then commit already read events to DIS.
     public void onPartitionsRevoked(Collection<TopicPartition> partitions)
     {
-        for (TopicPartition partition : partitions)
-        {
-            log.info("topic {} - partition {} revoked.", partition.topic(), partition.partition());
-            rebalanceFlag.set(true);
-        }
+        log.info("revoked partitions {}", partitions);
+        rebalanceFlag.set(true);
     }
     
     public void onPartitionsAssigned(Collection<TopicPartition> partitions)
     {
-        for (TopicPartition partition : partitions)
-        {
-            log.info("topic {} - partition {} assigned.", partition.topic(), partition.partition());
-        }
+        log.info("assigned partitions {}", partitions);
     }
 }

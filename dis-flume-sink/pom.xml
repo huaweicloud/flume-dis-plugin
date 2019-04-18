@@ -21,11 +21,6 @@
         </dependency>
 
         <dependency>
-            <groupId>com.huawei</groupId>
-            <artifactId>wcc_crypt</artifactId>
-        </dependency>
-
-        <dependency>
             <groupId>org.apache.flume</groupId>
             <artifactId>flume-ng-sdk</artifactId>
         </dependency>

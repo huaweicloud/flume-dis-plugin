@@ -16,22 +16,6 @@
 
 package com.huaweicloud.dis.adapter.flume.sink;
 
-import java.net.SocketTimeoutException;
-import java.nio.ByteBuffer;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-
-import org.apache.flume.*;
-import org.apache.flume.conf.Configurable;
-import org.apache.flume.instrumentation.SinkCounter;
-import org.apache.flume.sink.AbstractSink;
-import org.apache.http.HttpStatus;
-import org.apache.http.conn.ConnectTimeoutException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -51,6 +35,21 @@ import com.huaweicloud.dis.iface.data.request.PutRecordsRequestEntry;
 import com.huaweicloud.dis.iface.data.response.PutRecordsResult;
 import com.huaweicloud.dis.iface.data.response.PutRecordsResultEntry;
 import com.huaweicloud.dis.util.PartitionCursorTypeEnum;
+import org.apache.flume.*;
+import org.apache.flume.conf.Configurable;
+import org.apache.flume.instrumentation.SinkCounter;
+import org.apache.flume.sink.AbstractSink;
+import org.apache.http.HttpStatus;
+import org.apache.http.conn.ConnectTimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class DISSink extends AbstractSink implements Configurable
 {
@@ -347,6 +346,7 @@ public class DISSink extends AbstractSink implements Configurable
     
     private DISConfig getDISConfig()
     {
+        tryDecryptDISCredentials();
         DISConfig disConfig = DISConfig.buildConfig((String)null);
         disConfig.putAll(this.properties);
         
@@ -874,5 +874,46 @@ public class DISSink extends AbstractSink implements Configurable
     private enum PartitionKeyOption
     {
         RANDOM_INT
+    }
+
+    protected void tryDecryptDISCredentials()
+    {
+        if (properties == null)
+        {
+            return;
+        }
+        properties.put(DISConfig.PROPERTY_AK, tryGetDecryptValue(DISConfig.PROPERTY_AK));
+        properties.put(DISConfig.PROPERTY_SK, tryGetDecryptValue(DISConfig.PROPERTY_SK));
+    }
+
+    protected String tryGetDecryptValue(String key)
+    {
+        Object v = properties.get(key);
+        if (v == null)
+        {
+            return null;
+        }
+        String value = String.valueOf(v);
+        String dataPassword = null;
+        if (properties.get(DISConfig.PROPERTY_DATA_PASSWORD) != null)
+        {
+            dataPassword = String.valueOf(properties.get(DISConfig.PROPERTY_DATA_PASSWORD));
+        }
+        // 168 is the Minimum length of encrypt value.
+        if (value.length() >= 168)
+        {
+            properties.remove(DISConfig.PROPERTY_CONFIG_PROVIDER_CLASS);
+            try
+            {
+                LOGGER.info("Try to decrypt [{}].", key);
+                return EncryptTool.decrypt(value, dataPassword);
+            }
+            catch (Exception e)
+            {
+                LOGGER.error("Failed to decrypt [{}].", key);
+                throw e;
+            }
+        }
+        return value;
     }
 }
