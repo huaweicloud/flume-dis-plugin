@@ -42,13 +42,6 @@
         <fileSet>
             <directory>../</directory>
             <includes>
-                <include>application.properties</include>
-            </includes>
-            <outputDirectory>lib</outputDirectory>
-        </fileSet>
-        <fileSet>
-            <directory>../</directory>
-            <includes>
                 <include>install.sh</include>
                 <include>dis-flume-plugin.conf.template</include>
                 <include>dis-encrypt.sh</include>
