@@ -23,10 +23,10 @@ public class DISSourceConstants
     
     public static final String STREAMS_REGEX = STREAMS + "." + "regex";
     
-    public static final String DEFAULT_KEY_DESERIALIZER = "org.apache.kafka.common.serialization.StringDeserializer";
+    public static final String DEFAULT_KEY_DESERIALIZER = "com.huaweicloud.dis.adapter.kafka.common.serialization.StringDeserializer";
     
     public static final String DEFAULT_VALUE_DESERIALIZER =
-        "org.apache.kafka.common.serialization.ByteArrayDeserializer";
+        "com.huaweicloud.dis.adapter.kafka.common.serialization.ByteArrayDeserializer";
     
     public static final String DEFAULT_AUTO_COMMIT = "false";
     
@@ -52,7 +52,7 @@ public class DISSourceConstants
     public static final String OLD_GROUP_ID = "groupId";
     
     // flume event headers
-    public static final String DEFAULT_TOPIC_HEADER = "topic";
+    public static final String DEFAULT_TOPIC_HEADER = "stream";
     
     public static final String KEY_HEADER = "key";
     

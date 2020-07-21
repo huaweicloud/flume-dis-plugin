@@ -18,10 +18,15 @@ package com.huaweicloud.dis.adapter.flume.source;
 
 import static com.huaweicloud.dis.adapter.flume.source.DISSourceConstants.DEFAULT_GROUP_ID;
 
-import java.io.ByteArrayInputStream;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
+import com.google.common.base.Optional;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.Consumer;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.ConsumerConfig;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.ConsumerRebalanceListener;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.ConsumerRecord;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.ConsumerRecords;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.DISKafkaConsumer;
+import com.huaweicloud.dis.adapter.kafka.clients.consumer.OffsetAndMetadata;
+import com.huaweicloud.dis.adapter.kafka.common.TopicPartition;
 
 import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DecoderFactory;
@@ -37,13 +42,21 @@ import org.apache.flume.event.EventBuilder;
 import org.apache.flume.instrumentation.kafka.KafkaSourceCounter;
 import org.apache.flume.source.AbstractPollableSource;
 import org.apache.flume.source.avro.AvroFlumeEvent;
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Optional;
-import com.huaweicloud.dis.adapter.kafka.consumer.DISKafkaConsumer;
+import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 /**
  * A Source for DIS which reads messages from DIS streams.
@@ -308,7 +321,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
         }
         catch (Exception e)
         {
-            log.error("KafkaSource EXCEPTION, {}", e);
+            log.error("DISSource EXCEPTION, {}", e);
             return Status.BACKOFF;
         }
     }
@@ -342,7 +355,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
         }
         else if (subscriber == null)
         {
-            throw new ConfigurationException("At least one Kafka topic must be specified.");
+            throw new ConfigurationException("At least one DIS stream must be specified.");
         }
         
         batchUpperLimit = context.getInteger(DISSourceConstants.BATCH_SIZE, DISSourceConstants.DEFAULT_BATCH_SIZE);
@@ -439,7 +452,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
         
         // Connect to DIS. 1 second is optimal time.
         it = consumer.poll(1000).iterator();
-        log.info("Kafka source {} started.", getName());
+        log.info("DIS source {} started.", getName());
         counter.start();
     }
     
@@ -453,7 +466,7 @@ public class DISSource extends AbstractPollableSource implements Configurable
             consumer.close();
         }
         counter.stop();
-        log.info("Kafka Source {} stopped. Metrics: {}", getName(), counter);
+        log.info("DIS Source {} stopped. Metrics: {}", getName(), counter);
     }
     
 }

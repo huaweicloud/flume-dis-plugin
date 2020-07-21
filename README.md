@@ -7,7 +7,7 @@ DIS Flume Plugin是数据接入服务（DIS）为Flume开发的插件，包含DI
 - Java为1.8.0及以上版本
 
 ## 二、安装插件
-### 2.1 下载编译好的DIS Flume Plugin安装包，[地址](https://dis-publish.obs-website.cn-north-1.myhwclouds.com/dis-flume-plugin-1.1.0.zip)
+### 2.1 下载编译好的DIS Flume Plugin安装包，[地址](https://dis-publish.obs-website.cn-north-1.myhwclouds.com/dis-flume-plugin-1.2.0.zip)
 ### 2.2 使用PuTTY工具(或其他终端工具)远程登录Flume服务器
 ### 2.3 进入到Flume的安装目录
 ```console
