@@ -19,6 +19,8 @@ package com.huaweicloud.dis.adapter.flume.source;
 import static com.huaweicloud.dis.adapter.flume.source.DISSourceConstants.DEFAULT_GROUP_ID;
 
 import com.google.common.base.Optional;
+import com.huaweicloud.dis.DISConfig;
+import com.huaweicloud.dis.adapter.flume.source.utils.EncryptTool;
 import com.huaweicloud.dis.adapter.kafka.clients.consumer.Consumer;
 import com.huaweicloud.dis.adapter.kafka.clients.consumer.ConsumerConfig;
 import com.huaweicloud.dis.adapter.kafka.clients.consumer.ConsumerRebalanceListener;
@@ -106,6 +108,8 @@ public class DISSource extends AbstractPollableSource implements Configurable
     private Subscriber subscriber;
     
     private String groupId = DEFAULT_GROUP_ID;
+
+    private String userSk = null;
     
     private String topicHeader = null;
     
@@ -369,6 +373,13 @@ public class DISSource extends AbstractPollableSource implements Configurable
         {
             log.debug(DISSourceConstants.AVRO_EVENT + " set to: {}", useAvroEventFormat);
         }
+
+        String userSkProperty = context.getString("sk");
+        String encryptKeyValue = context.getString("encryptKey");
+        if (userSkProperty != null && !userSkProperty.isEmpty())
+        {
+            userSk = tryGetDecryptValue(userSkProperty, encryptKeyValue, false);
+        }
         
         String groupIdProperty = context.getString(ConsumerConfig.GROUP_ID_CONFIG);
         if (groupIdProperty != null && !groupIdProperty.isEmpty())
@@ -407,7 +418,10 @@ public class DISSource extends AbstractPollableSource implements Configurable
         disProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, DISSourceConstants.DEFAULT_VALUE_DESERIALIZER);
         // Defaults overridden based on config
         disProps.putAll(ctx.getParameters());
-        
+        if (userSk != null)
+        {
+            disProps.setProperty(DISConfig.PROPERTY_SK, userSk);
+        }
         if (groupId != null)
         {
             disProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -467,6 +481,35 @@ public class DISSource extends AbstractPollableSource implements Configurable
         }
         counter.stop();
         log.info("DIS Source {} stopped. Metrics: {}", getName(), counter);
+    }
+
+    protected String tryGetDecryptValue(String skValue, String encryptValue, boolean ignoreException)
+    {
+        if (encryptValue == null) {
+            encryptValue = "";
+        }
+        // 168 is the Minimum length of encrypt value.
+        if (skValue.length() >= 168)
+        {
+            try
+            {
+                log.info("Try to decrypt sk.");
+                return EncryptTool.decrypt(skValue, encryptValue);
+            }
+            catch (Exception e)
+            {
+                if (!ignoreException)
+                {
+                    log.error("Failed to decrypt sk.");
+                    throw e;
+                }
+                else
+                {
+                    log.warn("Try to decrypt but not success. key=sk.");
+                }
+            }
+        }
+        return skValue;
     }
     
 }

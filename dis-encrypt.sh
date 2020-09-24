@@ -1,5 +1,7 @@
 #!/bin/bash -l
 
+KEY=$1
+
 read -s -t 20 -p "Please enter password:" PASS
 
 if [ $? -ne 0 ]; then
@@ -15,10 +17,10 @@ if [ -z "${PASS}" ]; then
     exit 1
 fi
 
-pdir=$(cd `dirname $0`;pwd)
-cd ${pdir}
 
-result=`java -cp "lib/*:libext/*" com.huaweicloud.dis.adapter.flume.sink.WCCTool "${PASS}"`
+echo "Please wait..."
+
+result=`java -cp "libext/*" com.huaweicloud.dis.adapter.flume.source.utils.EncryptTool "${PASS}" ${KEY}`
 
 if [ $? -ne 0 ]; then
     echo "Failed to encrypt."
@@ -26,4 +28,3 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Encrypt result: ${result}"
-echo "Info: If password is encrypted, please add [configProviderClass=com.huaweicloud.dis.adapter.flume.sink.provider.WCCProvider] in sink configuration."
