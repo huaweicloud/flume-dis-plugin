@@ -21,6 +21,20 @@
             </includes>
             <outputDirectory>lib/</outputDirectory>
         </fileSet>
+        <fileSet>
+            <directory>target/lib</directory>
+            <includes>
+                <include>*</include>
+            </includes>
+            <outputDirectory>libext/</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>../dis-flume-source/target/lib</directory>
+            <includes>
+                <include>*</include>
+            </includes>
+            <outputDirectory>libext/</outputDirectory>
+        </fileSet>
 
         <!-- copy libext -->
         <fileSet>

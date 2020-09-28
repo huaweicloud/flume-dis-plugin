@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.huaweicloud.dis.*;
 import com.huaweicloud.dis.adapter.flume.sink.backoff.BackOffExecution;
 import com.huaweicloud.dis.adapter.flume.sink.backoff.ExponentialBackOff;
+import com.huaweicloud.dis.adapter.flume.sink.utils.EncryptTool;
 import com.huaweicloud.dis.core.handler.AsyncHandler;
 import com.huaweicloud.dis.core.util.StringUtils;
 import com.huaweicloud.dis.exception.DISClientException;
@@ -108,6 +109,8 @@ public class DISSink extends AbstractSink implements Configurable
     public static final String CONFIG_PARTITION_KEY_DELIMITER = "partitionKeyDelimiter";
 
     public static final String CONFIG_REQUEST_BYTES_LIMIT = "requestBytesLimit";
+
+    public static final String CONFIG_ENCRYPT_KEY = "encryptKey";
     
     public static final String DEFAULT_PARTITION_KEY_SPLIT = ",";
 
@@ -724,7 +727,49 @@ public class DISSink extends AbstractSink implements Configurable
             }
             return;
         }
+        if (param.equals(DISConfig.PROPERTY_SK)) {
+            value = tryGetDecryptValue(param, value.toString(), false);
+        }
         disConfig.set(param, value.toString());
+    }
+
+    protected String tryGetDecryptValue(String key, String value, boolean ignoreException)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String encryptKey = null;
+        if (properties.get(CONFIG_ENCRYPT_KEY) != null)
+        {
+            encryptKey = String.valueOf(properties.get(CONFIG_ENCRYPT_KEY));
+        }
+        else
+        {
+            encryptKey = "";
+        }
+        // 168 is the Minimum length of encrypt value.
+        if (value.length() >= 168)
+        {
+            try
+            {
+                LOGGER.info("Try to decrypt [{}].", key);
+                return EncryptTool.decrypt(value, encryptKey);
+            }
+            catch (Exception e)
+            {
+                if (!ignoreException)
+                {
+                    LOGGER.error("Failed to decrypt [{}].", key);
+                    throw e;
+                }
+                else
+                {
+                    LOGGER.warn("Try to decrypt but not success. key=[{}].", key);
+                }
+            }
+        }
+        return value;
     }
     
     protected String get(String propName, String defaultValue)
