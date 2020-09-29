@@ -16,29 +16,26 @@
 
 package com.huaweicloud.dis.adapter.flume.sink;
 
-import java.net.SocketTimeoutException;
-import java.nio.ByteBuffer;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import static com.huaweicloud.dis.adapter.flume.sink.DISSinkConstants.DEFAULT_TOPIC;
+import static com.huaweicloud.dis.adapter.flume.sink.DISSinkConstants.KEY_HEADER;
 
-import org.apache.flume.*;
-import org.apache.flume.conf.Configurable;
-import org.apache.flume.instrumentation.SinkCounter;
-import org.apache.flume.sink.AbstractSink;
-import org.apache.http.HttpStatus;
-import org.apache.http.conn.ConnectTimeoutException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.huaweicloud.dis.*;
+import com.huaweicloud.dis.DIS;
+import com.huaweicloud.dis.DISAsync;
+import com.huaweicloud.dis.DISClient;
+import com.huaweicloud.dis.DISClientAsync;
+import com.huaweicloud.dis.DISConfig;
 import com.huaweicloud.dis.adapter.flume.sink.backoff.BackOffExecution;
 import com.huaweicloud.dis.adapter.flume.sink.backoff.ExponentialBackOff;
 import com.huaweicloud.dis.adapter.flume.sink.utils.EncryptTool;
+import com.huaweicloud.dis.adapter.kafka.clients.producer.Callback;
+import com.huaweicloud.dis.adapter.kafka.clients.producer.DISKafkaProducer;
+import com.huaweicloud.dis.adapter.kafka.clients.producer.ProducerRecord;
+import com.huaweicloud.dis.adapter.kafka.clients.producer.RecordMetadata;
 import com.huaweicloud.dis.core.handler.AsyncHandler;
 import com.huaweicloud.dis.core.util.StringUtils;
 import com.huaweicloud.dis.exception.DISClientException;
@@ -52,6 +49,46 @@ import com.huaweicloud.dis.iface.data.request.PutRecordsRequestEntry;
 import com.huaweicloud.dis.iface.data.response.PutRecordsResult;
 import com.huaweicloud.dis.iface.data.response.PutRecordsResultEntry;
 import com.huaweicloud.dis.util.PartitionCursorTypeEnum;
+
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.specific.SpecificDatumReader;
+import org.apache.avro.specific.SpecificDatumWriter;
+import org.apache.flume.Channel;
+import org.apache.flume.Context;
+import org.apache.flume.Event;
+import org.apache.flume.EventDeliveryException;
+import org.apache.flume.Transaction;
+import org.apache.flume.conf.Configurable;
+import org.apache.flume.conf.LogPrivacyUtil;
+import org.apache.flume.formatter.output.BucketPath;
+import org.apache.flume.instrumentation.kafka.KafkaSinkCounter;
+import org.apache.flume.sink.AbstractSink;
+import org.apache.flume.source.avro.AvroFlumeEvent;
+import org.apache.http.HttpStatus;
+import org.apache.http.conn.ConnectTimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class DISSink extends AbstractSink implements Configurable
 {
@@ -165,7 +202,7 @@ public class DISSink extends AbstractSink implements Configurable
     
     private Properties properties;
     
-    private SinkCounter sinkCounter;
+    private KafkaSinkCounter sinkCounter;
     
     /**
      * 退避算法初始间隔
@@ -206,6 +243,27 @@ public class DISSink extends AbstractSink implements Configurable
     private String partitionKeyDelimiter;
 
     private long requestBytesLimit = 4 * 1024 * 1024;
+
+    private boolean useAvroEventFormat;
+    private List<Future<RecordMetadata>> kafkaFutures;
+
+    /**
+     * 是否允许动态覆盖通道名称。如果允许，则优先使用 Header 中指定的通道名称。
+     */
+    private boolean allowTopicOverride;
+    private String topicHeader = null;
+    private Optional<SpecificDatumWriter<AvroFlumeEvent>> writer =
+        Optional.absent();
+    private Optional<SpecificDatumReader<AvroFlumeEvent>> reader =
+        Optional.absent();
+    private Optional<ByteArrayOutputStream> tempOutStream = Optional
+        .absent();
+
+    // Fine to use null for initial value, Avro will create new ones if this
+    // is null
+    private BinaryEncoder encoder = null;
+
+    private DISKafkaProducer<String, byte[]> producer;
     
     @Override
     public void configure(Context context)
@@ -217,11 +275,22 @@ public class DISSink extends AbstractSink implements Configurable
             this.properties.put(key, props.get(key).trim());
         }
         
-        this.streamName = get(CONFIG_STREAM_NAME_KEY, null);
+        this.streamName = get(CONFIG_STREAM_NAME_KEY, DEFAULT_TOPIC);
         this.maxBufferAgeMillis = getInt(CONFIG_MAX_BUFFER_AGE_MILLIS_KEY, maxBufferAgeMillis);
         this.partitionCount = getInt(CONFIG_PARTITION_COUNT_KEY, partitionCount);
         this.batchSize = getInt(CONFIG_BATCH_SIZE_KEY, BATCH_CONTROL_FACTOR * partitionCount);
         this.retrySize = getInt(CONFIG_RETRY_SIZE_KEY, retrySize);
+
+        useAvroEventFormat = context.getBoolean(DISSinkConstants.AVRO_EVENT,
+            DISSinkConstants.DEFAULT_AVRO_EVENT);
+
+        allowTopicOverride = context.getBoolean(DISSinkConstants.ALLOW_TOPIC_OVERRIDE_HEADER,
+            DISSinkConstants.DEFAULT_ALLOW_TOPIC_OVERRIDE_HEADER);
+
+        topicHeader = context.getString(DISSinkConstants.TOPIC_OVERRIDE_HEADER,
+            DISSinkConstants.DEFAULT_TOPIC_OVERRIDE_HEADER);
+
+        kafkaFutures = new LinkedList<>();
         
         // 获取结果日志开关
         try
@@ -235,7 +304,10 @@ public class DISSink extends AbstractSink implements Configurable
         }
         
         // 参数校验
-        Preconditions.checkArgument(streamName != null, "DIS configuration error, streamName can not be null");
+        if (!allowTopicOverride) {
+            // 如果允许动态覆盖通道名，无需校验通道名称是否已经配置
+            Preconditions.checkArgument(streamName != null, "DIS configuration error, streamName can not be null");
+        }
         Preconditions.checkArgument(properties.get(CONFIG_ACCESS_KEY) != null,
             "DIS configuration error, access Key can not be null");
         Preconditions.checkArgument(properties.get(CONFIG_SECRET_KEY) != null,
@@ -253,7 +325,7 @@ public class DISSink extends AbstractSink implements Configurable
         // 发送线程池
         int sendingThreadSize = getInt(CONFIG_SENDING_THREAD_SIZE_KEY, 1);
         this.sendingRecordSize = getInt(CONFIG_SENDING_RECORD_SIZE_KEY, batchSize / sendingThreadSize);
-        
+
         if (sendingThreadSize == 1 && sendingRecordSize != batchSize)
         {
             // 单线程发送，指定sendingRecordSize没有用处，修改为batchSize的值
@@ -273,6 +345,10 @@ public class DISSink extends AbstractSink implements Configurable
         
         // 初始化DIS Client
         disConfig = getDISConfig();
+
+        if (LOGGER.isDebugEnabled() && LogPrivacyUtil.allowLogPrintConfig()) {
+            LOGGER.debug("DIS producer properties: {}", disConfig);
+        }
         
         disAsyncClient = new DISClientAsync(disConfig,
             new ThreadPoolExecutor(sendingThreadSize, sendingThreadSize, 0L, TimeUnit.MILLISECONDS,
@@ -282,7 +358,7 @@ public class DISSink extends AbstractSink implements Configurable
         disClient = new DISClient(disConfig);
         if (sinkCounter == null)
         {
-            sinkCounter = new SinkCounter(getName());
+            sinkCounter = new KafkaSinkCounter(getName());
         }
 
         requestBytesLimit = getLong(CONFIG_REQUEST_BYTES_LIMIT, requestBytesLimit);
@@ -293,50 +369,55 @@ public class DISSink extends AbstractSink implements Configurable
     public synchronized void start()
     {
         super.start();
-        
-        // 启动时调用获取迭代器接口测试DIS配置是否异常，如果有DIS异常则抛出Error不启动此Sink
-        GetPartitionCursorRequest request = new GetPartitionCursorRequest();
-        request.setStreamName(streamName);
-        request.setPartitionId("0");
-        request.setCursorType(PartitionCursorTypeEnum.LATEST.name());
-        try
-        {
-            disClient.getPartitionCursor(request);
-        }
-        catch (DISClientException e)
-        {
-            String msg = e.getMessage();
-            Throwable cause = e.getCause();
-            if (cause instanceof HttpClientErrorException || cause instanceof UnknownHttpStatusCodeException)
+
+        if (allowTopicOverride) {
+            // 允许动态覆盖通道名称时，使用 Adapter 实现
+            producer = new DISKafkaProducer<>(this.disConfig);
+        } else {
+            // 启动时调用获取迭代器接口测试DIS配置是否异常，如果有DIS异常则抛出Error不启动此Sink
+            GetPartitionCursorRequest request = new GetPartitionCursorRequest();
+            request.setStreamName(streamName);
+            request.setPartitionId("0");
+            request.setCursorType(PartitionCursorTypeEnum.LATEST.name());
+            try
             {
-                if (((RestClientResponseException)cause).getRawStatusCode() == HttpStatus.SC_FORBIDDEN)
-                {
-                    msg = String.format(
-                        "Error message [%s], this ip may have been locked due to too many invalid calls, please check configuration and retry later.",
-                        msg);
-                }
-                else if (((RestClientResponseException)cause).getRawStatusCode() == AUTHENTICATION_ERROR_HTTP_CODE)
-                {
-                    msg = String.format("Error message [%s], please check configuration and retry later.", msg);
-                }
+                disClient.getPartitionCursor(request);
             }
-            LOGGER.error(msg);
-            throw new Error(e);
-        }
-        catch (ResourceAccessException e)
-        {
-            // 网络异常只输出信息，不抛出
-            LOGGER.error("Failed to access endpoint [{}].", e.getMessage(), e);
-        }
-        catch (Exception e)
-        {
-            LOGGER.error(e.getMessage(), e);
-            throw e;
+            catch (DISClientException e)
+            {
+                String msg = e.getMessage();
+                Throwable cause = e.getCause();
+                if (cause instanceof HttpClientErrorException || cause instanceof UnknownHttpStatusCodeException)
+                {
+                    if (((RestClientResponseException)cause).getRawStatusCode() == HttpStatus.SC_FORBIDDEN)
+                    {
+                        msg = String.format(
+                            "Error message [%s], this ip may have been locked due to too many invalid calls, please check configuration and retry later.",
+                            msg);
+                    }
+                    else if (((RestClientResponseException)cause).getRawStatusCode() == AUTHENTICATION_ERROR_HTTP_CODE)
+                    {
+                        msg = String.format("Error message [%s], please check configuration and retry later.", msg);
+                    }
+                }
+                LOGGER.error(msg);
+                throw new Error(e);
+            }
+            catch (ResourceAccessException e)
+            {
+                // 网络异常只输出信息，不抛出
+                LOGGER.error("Failed to access endpoint [{}].", e.getMessage(), e);
+            }
+            catch (Exception e)
+            {
+                LOGGER.error(e.getMessage(), e);
+                throw e;
+            }
         }
         
         sinkCounter.start();
         isRunning = true;
-        LOGGER.info("Dis flume sink [" + getName() + "] start.");
+        LOGGER.info("DIS sink [" + getName() + "] start.");
     }
     
     @Override
@@ -345,7 +426,7 @@ public class DISSink extends AbstractSink implements Configurable
         isRunning = false;
         sinkCounter.stop();
         super.stop();
-        LOGGER.info("Dis flume sink [" + getName() + "] stop.");
+        LOGGER.info("DIS sink [" + getName() + "] stop.");
     }
     
     private DISConfig getDISConfig()
@@ -397,14 +478,135 @@ public class DISSink extends AbstractSink implements Configurable
             DISConfig.PROPERTY_BODY_SERIALIZE_TYPE,
             get(CONFIG_BODY_SERIALIZE_TYPE_KEY, DISConfig.BodySerializeType.protobuf.name()),
             false);
-        
+        updateDisConfigParam(disConfig, DISConfig.PROPERTY_PRODUCER_BATCH_COUNT,
+            get(CONFIG_SENDING_RECORD_SIZE_KEY, "1000"), false);
+        updateDisConfigParam(disConfig, DISConfig.PROPERTY_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+            get(CONFIG_SENDING_THREAD_SIZE_KEY, "20"), false);
+
         return disConfig;
+    }
+
+    private Status processUsingAdapter() throws EventDeliveryException {
+        Status result = Status.READY;
+        Channel channel = getChannel();
+        Transaction transaction = null;
+        Event event = null;
+        String eventTopic = null;
+        String eventKey = null;
+
+        try {
+            long processedEvents = 0;
+
+            transaction = channel.getTransaction();
+            transaction.begin();
+
+            kafkaFutures.clear();
+            long batchStartTime = System.nanoTime();
+            for (; processedEvents < batchSize; processedEvents += 1) {
+                event = channel.take();
+
+                if (event == null) {
+                    // no events available in channel
+                    if (processedEvents == 0) {
+                        result = Status.BACKOFF;
+                        sinkCounter.incrementBatchEmptyCount();
+                    } else {
+                        sinkCounter.incrementBatchUnderflowCount();
+                    }
+                    break;
+                }
+
+                byte[] eventBody = event.getBody();
+                Map<String, String> headers = event.getHeaders();
+
+                eventTopic = headers.get(topicHeader);
+                if (eventTopic == null) {
+                    eventTopic = BucketPath.escapeString(this.streamName, event.getHeaders());
+                    LOGGER.debug("{} was set to true but header {} was null. Producing to {}" +
+                            " topic instead.",
+                        new Object[] {
+                            DISSinkConstants.ALLOW_TOPIC_OVERRIDE_HEADER,
+                            topicHeader, eventTopic
+                        });
+                }
+
+                eventKey = headers.get(KEY_HEADER);
+                if (LOGGER.isTraceEnabled()) {
+                    if (LogPrivacyUtil.allowLogRawData()) {
+                        LOGGER.trace("{Event} " + eventTopic + " : " + eventKey + " : "
+                            + new String(eventBody, "UTF-8"));
+                    } else {
+                        LOGGER.trace("{Event} " + eventTopic + " : " + eventKey);
+                    }
+                }
+                LOGGER.debug("event #{}", processedEvents);
+
+                // create a message and add to buffer
+                long startTime = System.currentTimeMillis();
+
+                try {
+                    ProducerRecord<String, byte[]> record;
+
+                    record = new ProducerRecord<String, byte[]>(eventTopic, eventKey,
+                        serializeEvent(event, useAvroEventFormat));
+                    kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
+                } catch (Exception ex) {
+                    // N.B. The producer.send() method throws all sorts of RuntimeExceptions
+                    // Catching Exception here to wrap them neatly in an EventDeliveryException
+                    // which is what our consumers will expect
+                    throw new EventDeliveryException("Could not send event", ex);
+                }
+            }
+
+            //Prevent linger.ms from holding the batch
+            producer.flush();
+
+            // publish batch and commit.
+            if (processedEvents > 0) {
+                for (Future<RecordMetadata> future : kafkaFutures) {
+                    future.get();
+                }
+                long endTime = System.nanoTime();
+                sinkCounter.addToKafkaEventSendTimer((endTime - batchStartTime) / (1000 * 1000));
+                sinkCounter.addToEventDrainSuccessCount(Long.valueOf(kafkaFutures.size()));
+            }
+
+            transaction.commit();
+
+        } catch (Exception ex) {
+            String errorMsg = "Failed to publish events";
+            LOGGER.error("Failed to publish events", ex);
+            result = Status.BACKOFF;
+            if (transaction != null) {
+                try {
+                    kafkaFutures.clear();
+                    transaction.rollback();
+                    sinkCounter.incrementRollbackCount();
+                } catch (Exception e) {
+                    LOGGER.error("Transaction rollback failed", e);
+                    throw Throwables.propagate(e);
+                }
+            }
+            throw new EventDeliveryException(errorMsg, ex);
+        } finally {
+            if (transaction != null) {
+                transaction.close();
+            }
+        }
+
+        return result;
     }
     
     @Override
     public Status process()
         throws EventDeliveryException
     {
+        if (allowTopicOverride) {
+            // 允许动态覆盖通道名称时，使用 Adapter 实现
+            return processUsingAdapter();
+        }
+
+        // TODO 不允许动态覆盖通道名称时，使用 SDK 实现，待整改，全部使用 Adapter 实现。
         Channel channel = getChannel();
         Transaction transaction = channel.getTransaction();
         transaction.begin();
@@ -919,5 +1121,56 @@ public class DISSink extends AbstractSink implements Configurable
     private enum PartitionKeyOption
     {
         RANDOM_INT
+    }
+
+    private byte[] serializeEvent(Event event, boolean useAvroEventFormat) throws IOException {
+        byte[] bytes;
+        if (useAvroEventFormat) {
+            if (!tempOutStream.isPresent()) {
+                tempOutStream = Optional.of(new ByteArrayOutputStream());
+            }
+            if (!writer.isPresent()) {
+                writer = Optional.of(new SpecificDatumWriter<AvroFlumeEvent>(AvroFlumeEvent.class));
+            }
+            tempOutStream.get().reset();
+            AvroFlumeEvent e = new AvroFlumeEvent(toCharSeqMap(event.getHeaders()),
+                ByteBuffer.wrap(event.getBody()));
+            encoder = EncoderFactory.get().directBinaryEncoder(tempOutStream.get(), encoder);
+            writer.get().write(e, encoder);
+            encoder.flush();
+            bytes = tempOutStream.get().toByteArray();
+        } else {
+            bytes = event.getBody();
+        }
+        return bytes;
+    }
+
+    private static Map<CharSequence, CharSequence> toCharSeqMap(Map<String, String> stringMap) {
+        Map<CharSequence, CharSequence> charSeqMap = new HashMap<CharSequence, CharSequence>();
+        for (Map.Entry<String, String> entry : stringMap.entrySet()) {
+            charSeqMap.put(entry.getKey(), entry.getValue());
+        }
+        return charSeqMap;
+    }
+}
+
+class SinkCallback implements Callback {
+    private static final Logger logger = LoggerFactory.getLogger(SinkCallback.class);
+    private long startTime;
+
+    public SinkCallback(long startTime) {
+        this.startTime = startTime;
+    }
+
+    public void onCompletion(RecordMetadata metadata, Exception exception) {
+        if (exception != null) {
+            logger.debug("Error sending message to DIS {} ", exception.getMessage());
+        }
+
+        if (logger.isDebugEnabled()) {
+            long eventElapsedTime = System.currentTimeMillis() - startTime;
+            logger.debug("Acked message partition:{} ofset:{}",  metadata.partition(), metadata.offset());
+            logger.debug("Elapsed time for send: {}", eventElapsedTime);
+        }
     }
 }
