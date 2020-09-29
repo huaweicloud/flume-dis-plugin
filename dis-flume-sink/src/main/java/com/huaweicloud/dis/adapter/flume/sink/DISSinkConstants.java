@@ -38,7 +38,7 @@ public class DISSinkConstants {
     public static final String DEFAULT_TOPIC_OVERRIDE_HEADER = "stream";
     public static final String TOPIC_OVERRIDE_HEADER = "topicHeader";
     public static final String ALLOW_TOPIC_OVERRIDE_HEADER = "allowTopicOverride";
-    public static final boolean DEFAULT_ALLOW_TOPIC_OVERRIDE_HEADER = true;
+    public static final boolean DEFAULT_ALLOW_TOPIC_OVERRIDE_HEADER = false;
 
     public static final String DEFAULT_TOPIC = "default-flume-stream";
 
