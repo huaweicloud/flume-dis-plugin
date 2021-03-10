@@ -11,9 +11,8 @@
     <name>DIS Flume Plugin</name>
 
     <properties>
-        <dis-kafka-adapter.version>1.2.10</dis-kafka-adapter.version>
+        <dis-kafka-adapter.version>1.2.13</dis-kafka-adapter.version>
         <flume-ng.version>1.7.0</flume-ng.version>
-
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -86,21 +85,18 @@
                 </exclusions>
                 <scope>provided</scope>
             </dependency>
-
             <dependency>
                 <groupId>org.apache.flume</groupId>
                 <artifactId>flume-ng-core</artifactId>
                 <version>${flume-ng.version}</version>
                 <scope>provided</scope>
             </dependency>
-
             <dependency>
                 <groupId>org.apache.flume</groupId>
                 <artifactId>flume-ng-configuration</artifactId>
                 <version>${flume-ng.version}</version>
                 <scope>provided</scope>
             </dependency>
-
             <dependency>
                 <groupId>junit</groupId>
                 <artifactId>junit</artifactId>

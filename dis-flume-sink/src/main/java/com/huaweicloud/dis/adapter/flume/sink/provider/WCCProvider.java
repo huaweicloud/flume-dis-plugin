@@ -55,7 +55,7 @@ public class WCCProvider implements ICredentialsProvider
                         dataPassword = WCCTool.getInstance().decrypt(dataPassword);
                     }
                     
-                    decryptedCredentials = new DISCredentials(decryptAK, decryptSK, securityToken, dataPassword);
+                    decryptedCredentials = new DISCredentials(decryptAK, decryptSK, securityToken, Long.valueOf(dataPassword));
                     decrypted = true;
                     LOG.info("WCCProvider decrypted successfully.");
                     return decryptedCredentials;
