@@ -148,6 +148,8 @@ public class DISSink extends AbstractSink implements Configurable
     public static final String CONFIG_REQUEST_BYTES_LIMIT = "requestBytesLimit";
 
     public static final String CONFIG_ENCRYPT_KEY = "encryptKey";
+
+    public static final String CONFIG_DATAPASSWORD_ENCRYPT_KEY = "dataPasswordEncryptKey";
     
     public static final String DEFAULT_PARTITION_KEY_SPLIT = ",";
 
@@ -442,14 +444,18 @@ public class DISSink extends AbstractSink implements Configurable
         updateDisConfigParam(disConfig, DISConfig.PROPERTY_SK, properties.get(CONFIG_SECRET_KEY), true);
         updateDisConfigParam(disConfig, DISConfig.PROPERTY_PROJECT_ID, properties.get(CONFIG_PROJECT_ID_KEY), true);
         updateDisConfigParam(disConfig, DISConfig.PROPERTY_ENDPOINT, properties.get(CONFIG_ENDPOINT_KEY), false);
-        updateDisConfigParam(disConfig,
-            DISConfig.PROPERTY_IS_DEFAULT_DATA_ENCRYPT_ENABLED,
-            properties.get(CONFIG_DATA_ENCRYPT_ENABLED_KEY),
-            false);
-        updateDisConfigParam(disConfig,
-            DISConfig.PROPERTY_DATA_PASSWORD,
-            properties.get(CONFIG_DATA_PASSWORD_KEY),
-            false);
+        if (properties.get(CONFIG_DATA_ENCRYPT_ENABLED_KEY) != null) {
+            updateDisConfigParam(disConfig,
+                DISConfig.PROPERTY_IS_DEFAULT_DATA_ENCRYPT_ENABLED,
+                properties.get(CONFIG_DATA_ENCRYPT_ENABLED_KEY),
+                false);
+        }
+        if (properties.get(CONFIG_DATA_PASSWORD_KEY) != null) {
+            updateDisConfigParam(disConfig,
+                DISConfig.PROPERTY_DATA_PASSWORD,
+                properties.get(CONFIG_DATA_PASSWORD_KEY),
+                false);
+        }
         updateDisConfigParam(disConfig,
             DISConfig.PROPERTY_CONNECTION_TIMEOUT,
             properties.get(CONFIG_CONNECTION_TIMEOUT_KEY),
@@ -929,7 +935,7 @@ public class DISSink extends AbstractSink implements Configurable
             }
             return;
         }
-        if (param.equals(DISConfig.PROPERTY_SK)) {
+        if (param.equals(DISConfig.PROPERTY_SK) || (param.equals(DISConfig.PROPERTY_DATA_PASSWORD))) {
             value = tryGetDecryptValue(param, value.toString(), false);
         }
         disConfig.set(param, value.toString());
@@ -942,21 +948,27 @@ public class DISSink extends AbstractSink implements Configurable
             return null;
         }
         String encryptKey = null;
-        if (properties.get(CONFIG_ENCRYPT_KEY) != null)
-        {
-            encryptKey = String.valueOf(properties.get(CONFIG_ENCRYPT_KEY));
-        }
-        else
-        {
-            encryptKey = "";
-        }
+
         // 168 is the Minimum length of encrypt value.
         if (value.length() >= 168)
         {
             try
             {
                 LOGGER.info("Try to decrypt [{}].", key);
-                return EncryptTool.decrypt(value, encryptKey);
+                if (key.equals(DISConfig.PROPERTY_SK) && properties.get(CONFIG_ENCRYPT_KEY) != null)
+                {
+                    encryptKey = String.valueOf(properties.get(CONFIG_ENCRYPT_KEY));
+                    return EncryptTool.decrypt(value, encryptKey);
+                }
+                else if (key.equals(DISConfig.PROPERTY_DATA_PASSWORD) && properties.get(CONFIG_DATAPASSWORD_ENCRYPT_KEY) != null)
+                {
+                    encryptKey = String.valueOf(properties.get(CONFIG_DATAPASSWORD_ENCRYPT_KEY));
+                    return EncryptTool.decrypt(value, encryptKey);
+                }
+                else
+                {
+                    return EncryptTool.decrypt(value);
+                }
             }
             catch (Exception e)
             {
