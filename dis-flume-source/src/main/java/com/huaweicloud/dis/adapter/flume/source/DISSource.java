@@ -485,16 +485,20 @@ public class DISSource extends AbstractPollableSource implements Configurable
 
     protected String tryGetDecryptValue(String skValue, String encryptValue, boolean ignoreException)
     {
-        if (encryptValue == null) {
-            encryptValue = "";
-        }
         // 168 is the Minimum length of encrypt value.
         if (skValue.length() >= 168)
         {
             try
             {
                 log.info("Try to decrypt sk.");
-                return EncryptTool.decrypt(skValue, encryptValue);
+                if (encryptValue != null)
+                {
+                    return EncryptTool.decrypt(skValue, encryptValue);
+                }
+                else
+                {
+                    return EncryptTool.decrypt(skValue);
+                }
             }
             catch (Exception e)
             {
