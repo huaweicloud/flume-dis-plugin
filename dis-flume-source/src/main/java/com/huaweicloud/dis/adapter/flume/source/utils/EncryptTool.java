@@ -4,15 +4,8 @@ import com.huaweicloud.dis.util.encrypt.EncryptUtils;
 
 public class EncryptTool
 {
-    private static final String DEFAULT_KEY = "9535995d-191e-4d12-a2c5-b8406f05e531";
-
     private EncryptTool()
     {
-    }
-
-    public static String encrypt(String data)
-    {
-        return encrypt(data, DEFAULT_KEY);
     }
 
     public static String encrypt(String data, String key)
@@ -21,7 +14,7 @@ public class EncryptTool
         {
             if (key == null)
             {
-                key = DEFAULT_KEY;
+                throw new RuntimeException("Encrypt key is null.");
             }
             return EncryptUtils.gen(new String[]{key}, data);
         }
@@ -31,18 +24,13 @@ public class EncryptTool
         }
     }
 
-    public static String decrypt(String data)
-    {
-        return decrypt(data, DEFAULT_KEY);
-    }
-
     public static String decrypt(String data, String key)
     {
         try
         {
             if (key == null)
             {
-                key = DEFAULT_KEY;
+                throw new RuntimeException("Encrypt key is null.");
             }
             return EncryptUtils.dec(new String[]{key}, data);
         }
@@ -54,23 +42,16 @@ public class EncryptTool
 
     public static void main(String[] args)
     {
-        if (args.length < 1)
+        if (args.length < 2)
         {
             doUsage();
             System.exit(-1);
         }
-        if (args.length > 1)
-        {
-            System.out.println(encrypt(args[0], args[1]));
-        }
-        else
-        {
-            System.out.println(encrypt(args[0]));
-        }
+        System.out.println(encrypt(args[0], args[1]));
     }
 
     private static void doUsage()
     {
-        System.out.println("Please input password.");
+        System.out.println("Please input password and key.");
     }
 }
